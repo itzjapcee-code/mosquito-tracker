@@ -115,6 +115,11 @@ with tab_contribs:
 
         # 循环渲染每一行 (限制显示最近 50 条以防卡顿)
         for i, item in enumerate(raw_contribs[:50]):
+            # 兼容性检查：如果没有 ID，跳过或生成临时 ID (但在删除时会失效)
+            # 既然是管理后台，我们跳过坏数据，避免崩盘
+            if 'id' not in item:
+                continue
+                
             c1, c2, c3, c4, c5, c6 = st.columns([2, 2, 3, 2, 4, 2])
             
             with c1:
