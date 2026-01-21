@@ -110,8 +110,11 @@ def create_task(creator, name, category, subcategory, difficulty_level="B 级 (�
     return new_task
 
 def get_all_active_tasks():
+    # 改为返回所有非删除状态的任务 (包括已完成和暂停)
+    # 原名保留为了兼容性，但在 Home 页我们会用到所有任务
     tasks = _load_data("tasks")
-    return [t for t in tasks if t.get("status") == "进行中"]
+    # 只要不是逻辑删除的（如果有软删除逻辑），都返回
+    return tasks
 
 def get_user_involved_tasks(user):
     tasks = _load_data("tasks")

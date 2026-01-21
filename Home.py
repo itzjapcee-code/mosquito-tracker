@@ -42,20 +42,35 @@ for category, subcategories in db_adapter.CATEGORIES.items():
                     p = task['progress']
                     name = task['name']
                     creator = task.get('creator', '?')
+                    status = task.get('status', '进行中')
                     
-                    # 状态图标与颜色
+                    # 默认样式 (进行中)
                     icon = "🔴"
                     color_style = "border-left: 5px solid #FF5252;" # 红条
                     bg_color = "#FFEBEE"
-                    if p >= 30: 
-                        icon = "🟡"
-                        color_style = "border-left: 5px solid #FFD740;" # 黄条
-                        bg_color = "#FFFDE7"
-                    if p >= 80: 
-                        icon = "🟢"
-                        color_style = "border-left: 5px solid #66BB6A;" # 绿条
-                        bg_color = "#E8F5E9"
+                    status_text = f"{p}%"
                     
+                    if status == "已完成":
+                        icon = "✅"
+                        color_style = "border-left: 5px solid #4CAF50;" # 深绿条
+                        bg_color = "#E8F5E9"
+                        status_text = "DONE"
+                    elif status == "暂停":
+                        icon = "⏸️"
+                        color_style = "border-left: 5px solid #9E9E9E;" # 灰条
+                        bg_color = "#F5F5F5"
+                        status_text = "PAUSED"
+                    else:
+                        # 进行中状态根据进度变色
+                        if p >= 30: 
+                            icon = "🟡"
+                            color_style = "border-left: 5px solid #FFD740;" 
+                            bg_color = "#FFFDE7"
+                        if p >= 80: 
+                            icon = "🟢"
+                            color_style = "border-left: 5px solid #66BB6A;" 
+                            bg_color = "#E8F5E9"
+
                     # 使用 HTML 卡片模拟叶子节点
                     st.markdown(
                         f"""
@@ -77,8 +92,8 @@ for category, subcategories in db_adapter.CATEGORIES.items():
                                 </div>
                             </div>
                             <div style="flex: 1; text-align: right;">
-                                <div style="font-weight: bold; font-size: 1.1em;">{p}%</div>
-                                <div style="font-size: 0.7em; color: #666;">PROGRESS</div>
+                                <div style="font-weight: bold; font-size: 1.1em;">{status_text}</div>
+                                <div style="font-size: 0.7em; color: #666;">{status}</div>
                             </div>
                         </div>
                         """,
