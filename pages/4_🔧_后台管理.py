@@ -16,7 +16,7 @@ if pwd != ADMIN_PWD:
 
 st.success("🔓 管理员身份已验证")
 
-tab_tasks, tab_contribs = st.tabs(["📌 任务管理", "📝 贡献记录清洗"])
+tab_tasks, tab_contribs, tab_danger = st.tabs(["📌 任务管理", "📝 贡献记录清洗", "⚠️ 危险区域"])
 
 # ================= 1. 任务管理 (保持不变) =================
 with tab_tasks:
@@ -45,7 +45,7 @@ with tab_tasks:
         )
         
         st.markdown("---")
-        st.subheader("🗑️ 危险操作区")
+        st.subheader("🗑️ 删除特定任务")
         
         col1, col2 = st.columns([3, 1])
         with col1:
@@ -68,8 +68,9 @@ with tab_tasks:
                     deleted_count = 0
                     for c in all_contribs:
                         if str(c.get('task_id')) == str(task_to_delete['id']):
-                            db_adapter.delete_item("contributions", c['id'])
-                            deleted_count += 1
+                            if 'id' in c:
+                                db_adapter.delete_item("contributions", c['id'])
+                                deleted_count += 1
                     
                     st.success(f"任务 {task_to_delete['name']} 已删除！(同时清理了 {deleted_count} 条打卡记录)")
                     st.rerun()
@@ -89,21 +90,18 @@ with tab_tasks:
                     st.success("更新成功！")
                     st.rerun()
 
-# ================= 2. 贡献记录清洗 (全新交互) =================
+# ================= 2. 贡献记录清洗 (保持不变) =================
 with tab_contribs:
     st.markdown("### 🧹 贡献数据清洗")
     st.caption("直接修改数值或删除错误记录。")
     
-    # 获取原始数据以便获取 ID
     raw_contribs = db_adapter._load_data("contributions")
     
     if not raw_contribs:
         st.info("暂无贡献数据。")
     else:
-        # 按时间倒序排列
         raw_contribs.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
         
-        # 头部标题
         h1, h2, h3, h4, h5, h6 = st.columns([2, 2, 3, 2, 4, 2])
         h1.markdown("**日期**")
         h2.markdown("**成员**")
@@ -113,10 +111,7 @@ with tab_contribs:
         h6.markdown("**操作**")
         st.divider()
 
-        # 循环渲染每一行 (限制显示最近 50 条以防卡顿)
         for i, item in enumerate(raw_contribs[:50]):
-            # 兼容性检查：如果没有 ID，跳过或生成临时 ID (但在删除时会失效)
-            # 既然是管理后台，我们跳过坏数据，避免崩盘
             if 'id' not in item:
                 continue
                 
@@ -124,60 +119,62 @@ with tab_contribs:
             
             with c1:
                 st.write(item.get('date', ''))
-            
             with c2:
                 st.write(item.get('user', ''))
-            
             with c3:
                 st.caption(item.get('task_name', ''))
                 
-            # 获取当前得分 V
             score_dict = item.get('score', {})
             current_v = score_dict.get('V', 0.0) if isinstance(score_dict, dict) else 0.0
             
             with c4:
-                # 修改得分
-                new_v = st.number_input(
-                    "得分", 
-                    value=float(current_v), 
-                    key=f"v_{item['id']}", 
-                    label_visibility="collapsed",
-                    step=0.5
-                )
-            
+                new_v = st.number_input("得分", value=float(current_v), key=f"v_{item['id']}", label_visibility="collapsed", step=0.5)
             with c5:
-                # 修改描述
-                new_desc = st.text_input(
-                    "描述",
-                    value=item.get('description', ''),
-                    key=f"desc_{item['id']}",
-                    label_visibility="collapsed"
-                )
+                new_desc = st.text_input("描述", value=item.get('description', ''), key=f"desc_{item['id']}", label_visibility="collapsed")
             
             with c6:
-                # 操作按钮
                 col_save, col_del = st.columns(2)
                 with col_save:
                     if st.button("💾", key=f"save_{item['id']}", help="保存修改"):
-                        # 更新逻辑
-                        # 1. 更新 score.V
                         if isinstance(item.get('score'), dict):
                             item['score']['V'] = new_v
                         else:
                             item['score'] = {'V': new_v}
-                        
-                        # 2. 更新 description
                         item['description'] = new_desc
-                        
-                        # 写入数据库 (覆盖整条 item)
                         db_adapter._save_item("contributions", item, item['id'])
                         st.toast(f"✅ 记录已更新！得分: {new_v}")
-                        # 不需要 rerun，因为是覆盖写入，下次刷新才变，或者手动 rerun
                         
                 with col_del:
                     if st.button("🗑️", key=f"del_{item['id']}", help="删除此记录"):
                         db_adapter.delete_item("contributions", item['id'])
                         st.toast("🗑️ 记录已删除")
                         st.rerun()
-            
             st.divider()
+
+# ================= 3. 危险区域 (新增核按钮) =================
+with tab_danger:
+    st.error("⚠️ **危险区域：请谨慎操作**")
+    st.markdown("这里包含不可逆的破坏性操作。")
+    
+    st.markdown("### 🧨 核按钮：清空所有数据")
+    st.markdown("如果您想彻底重置系统（例如测试结束，准备正式使用），请使用此功能。")
+    
+    confirm_text = st.text_input("请输入 'DELETE ALL' 以确认清空所有数据", placeholder="DELETE ALL")
+    
+    if st.button("💣 清空所有任务和贡献记录", type="primary", disabled=(confirm_text != "DELETE ALL")):
+        # 1. 清空任务
+        tasks = db_adapter._load_data("tasks")
+        for t in tasks:
+            if 'id' in t: db_adapter.delete_item("tasks", t['id'])
+            
+        # 2. 清空贡献
+        contribs = db_adapter._load_data("contributions")
+        for c in contribs:
+            if 'id' in c: db_adapter.delete_item("contributions", c['id'])
+            
+        st.success("💥 系统已重置！所有数据已清空。")
+        st.balloons()
+        # 强制刷新
+        import time
+        time.sleep(2)
+        st.rerun()
