@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-import librosa
+import torchaudio
 import numpy as np
 import pandas as pd
 import io
@@ -18,16 +18,15 @@ CLASSES = {0: "🦟 发现蚊子 (Mosquito)", 1: "🔇 安全/噪音 (Other)"}
 
 # ================= 2. 两种模型结构 =================
 class SimpleMosquitoCNN(nn.Module):
-    """纯 CNN（输入 (B,1,32,40) -> 输出 (B,2)）"""
     def __init__(self):
         super().__init__()
         self.cnn_layers = nn.Sequential(
             nn.Conv2d(1, 8, 3, padding=1),
             nn.ReLU(),
-            nn.MaxPool2d(2),        # (8,16,20)
+            nn.MaxPool2d(2),
             nn.Conv2d(8, 16, 3, padding=1),
             nn.ReLU(),
-            nn.MaxPool2d(2),        # (16,8,10)
+            nn.MaxPool2d(2),
         )
         self.fc_layers = nn.Sequential(
             nn.Flatten(),
@@ -42,47 +41,39 @@ class SimpleMosquitoCNN(nn.Module):
         return x
 
 class SimpleMosquitoCNNLSTM(nn.Module):
-    """
-    CNN-LSTM（已对齐你上传的 checkpoint 特征）
-    """
     def __init__(self):
         super().__init__()
-
         self.cnn = nn.Sequential(
-            nn.Conv2d(1, 32, 3, padding=1),      # cnn.0.*
-            nn.BatchNorm2d(32),                  # cnn.1.*
-            nn.ReLU(),                           # cnn.2
-            nn.MaxPool2d((1, 2)),                # cnn.3  40->20
-
-            nn.Conv2d(32, 64, 3, padding=1),     # cnn.4.*
-            nn.BatchNorm2d(64),                  # cnn.5.*
-            nn.ReLU(),                           # cnn.6
-            nn.MaxPool2d((1, 2)),                # cnn.7  20->10
+            nn.Conv2d(1, 32, 3, padding=1),
+            nn.BatchNorm2d(32),
+            nn.ReLU(),
+            nn.MaxPool2d((1, 2)),
+            nn.Conv2d(32, 64, 3, padding=1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(),
+            nn.MaxPool2d((1, 2)),
         )
-
         self.lstm = nn.LSTM(
-            input_size=64 * 10,      # 640
+            input_size=64 * 10,
             hidden_size=128,
             num_layers=1,
             batch_first=True,
             bidirectional=True
         )
-
         self.classifier = nn.Sequential(
-            nn.Linear(128 * 2, 128),  # 256->128
+            nn.Linear(128 * 2, 128),
             nn.ReLU(),
-            nn.Dropout(0.3),          # 关键：保证最终层 index 为 classifier.3
+            nn.Dropout(0.3),
             nn.Linear(128, 2)
         )
 
     def forward(self, x):
-        x = self.cnn(x)                                    # (B,64,32,10)
-        x = x.permute(0, 2, 1, 3).contiguous()     # (B,32,64,10)
-        x = x.view(x.size(0), x.size(1), -1)       # (B,32,640)
-
-        out, _ = self.lstm(x)                              # (B,32,256)
-        feat = out[:, -1, :]                               # (B,256)
-        return self.classifier(feat)                       # (B,2)
+        x = self.cnn(x)
+        x = x.permute(0, 2, 1, 3).contiguous()
+        x = x.view(x.size(0), x.size(1), -1)
+        out, _ = self.lstm(x)
+        feat = out[:, -1, :]
+        return self.classifier(feat)
 
 def build_model(arch: str) -> nn.Module:
     if arch == "CNN":
@@ -92,26 +83,49 @@ def build_model(arch: str) -> nn.Module:
     else:
         raise ValueError(f"未知模型结构: {arch}")
 
-# ================= 3. 音频处理 =================
-def process_audio(y, sr):
-    """把音频处理成 (1,1,32,40) 的 MFCC 输入张量"""
-    target_len = int(sr * 1.0)
-    if len(y) < target_len:
-        y = np.pad(y, (0, target_len - len(y)))
+# ================= 3. 音频处理 (Torchaudio 版) =================
+def process_audio_tensor(waveform, sample_rate):
+    """
+    使用 torchaudio 处理音频张量
+    """
+    # 1. 重采样
+    if sample_rate != SR:
+        resampler = torchaudio.transforms.Resample(orig_freq=sample_rate, new_freq=SR)
+        waveform = resampler(waveform)
+
+    # 2. 转单声道
+    if waveform.shape[0] > 1:
+        waveform = torch.mean(waveform, dim=0, keepdim=True)
+    
+    # 3. 长度裁剪/填充
+    target_len = int(SR * 1.0)
+    current_len = waveform.shape[1]
+    
+    if current_len < target_len:
+        waveform = torch.nn.functional.pad(waveform, (0, target_len - current_len))
     else:
-        y = y[:target_len]
+        waveform = waveform[:, :target_len]
 
-    mfcc = librosa.feature.mfcc(
-        y=y, sr=sr, n_mfcc=N_MFCC, n_fft=N_FFT, hop_length=HOP_LENGTH
-    ).T  # (T,40)
-
+    # 4. 提取 MFCC
+    # librosa default n_mels=128, log_mels=False (returns coefficients)
+    mfcc_transform = torchaudio.transforms.MFCC(
+        sample_rate=SR,
+        n_mfcc=N_MFCC,
+        melkwargs={"n_fft": N_FFT, "hop_length": HOP_LENGTH, "n_mels": 128}
+    )
+    
+    mfcc = mfcc_transform(waveform) # (Channel, n_mfcc, time)
+    mfcc = mfcc.squeeze(0).transpose(0, 1) # (time, n_mfcc)
+    
+    # 5. 调整帧数 (Max Frames)
     if mfcc.shape[0] < MAX_FRAMES:
-        pad = np.zeros((MAX_FRAMES - mfcc.shape[0], N_MFCC), dtype=np.float32)
-        mfcc = np.vstack([mfcc, pad])
+        pad = torch.zeros((MAX_FRAMES - mfcc.shape[0], N_MFCC))
+        mfcc = torch.cat([mfcc, pad], dim=0)
     else:
         mfcc = mfcc[:MAX_FRAMES, :]
 
-    tensor = torch.tensor(mfcc, dtype=torch.float32).unsqueeze(0).unsqueeze(0)
+    # (1, 1, T, 40)
+    tensor = mfcc.unsqueeze(0).unsqueeze(0)
     return tensor
 
 def parse_label_from_filename(filename):
@@ -123,29 +137,24 @@ def parse_label_from_filename(filename):
     else:
         return -1, "❓ 未知"
 
-def load_audio_from_uploaded(uploaded_file, target_sr=SR):
+def load_audio_from_uploaded(uploaded_file):
     """
-    解决 LibsndfileError
+    使用 torchaudio 读取 (支持 wav, mp3 等)
     """
     data = uploaded_file.getvalue()
-
-    # 1) 先尝试 BytesIO
-    bio = io.BytesIO(data)
-    try:
-        bio.seek(0)
-        y, sr = librosa.load(bio, sr=target_sr, mono=True)
-        return y, sr
-    except Exception:
-        pass
-
-    # 2) fallback：落盘临时文件再读
+    
+    # torchaudio.load 支持类文件对象吗？部分版本支持，最稳妥是写临时文件
     with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as f:
         f.write(data)
         tmp_path = f.name
 
     try:
-        y, sr = librosa.load(tmp_path, sr=target_sr, mono=True)
-        return y, sr
+        # torchaudio 读取返回 (waveform, sample_rate)
+        # waveform: (Channel, Time)
+        waveform, sr = torchaudio.load(tmp_path)
+        return waveform, sr
+    except Exception as e:
+        raise e
     finally:
         try:
             os.remove(tmp_path)
@@ -162,7 +171,6 @@ def load_model_from_bytes(uploaded_file, arch: str):
     buffer = io.BytesIO(bytes_data)
 
     try:
-        # 新 torch: weights_only=True
         try:
             sd = torch.load(buffer, map_location=device, weights_only=True)
         except TypeError:
@@ -175,7 +183,7 @@ def load_model_from_bytes(uploaded_file, arch: str):
     except Exception as e:
         return None, f"❌ 模型加载失败（{arch}）：{e}"
 
-# ================= 6. 推理与统计 (核心函数) =================
+# ================= 6. 推理与统计 =================
 def run_infer(model: nn.Module, audio_files):
     results = []
     correct_count = 0
@@ -186,9 +194,9 @@ def run_infer(model: nn.Module, audio_files):
     for i, audio_file in enumerate(audio_files):
         progress.progress((i + 1) / max(len(audio_files), 1))
 
-        # ---- 读取音频 (容错) ----
         try:
-            y, sr = load_audio_from_uploaded(audio_file, target_sr=SR)
+            waveform, sr = load_audio_from_uploaded(audio_file)
+            input_tensor = process_audio_tensor(waveform, sr)
         except Exception as e:
             true_idx, true_str = parse_label_from_filename(audio_file.name)
             results.append({
@@ -198,11 +206,9 @@ def run_infer(model: nn.Module, audio_files):
                 "预测标签": "❌ 读取失败",
                 "预测idx": -1,
                 "置信度": 0.0,
-                "判定": f"读取失败: {type(e).__name__}",
+                "判定": f"Err: {str(e)[:20]}",
             })
             continue
-
-        input_tensor = process_audio(y, sr)
 
         with torch.no_grad():
             output = model(input_tensor)
@@ -243,7 +249,6 @@ def run_infer(model: nn.Module, audio_files):
         acc_val = correct_count / total_labeled
         acc_str = f"{acc_val * 100:.2f}%"
 
-    # 混淆矩阵
     labeled_df = df[(df["真实idx"] != -1) & (df["预测idx"] != -1)].copy()
     if len(labeled_df) > 0:
         cm = pd.crosstab(
@@ -253,13 +258,6 @@ def run_infer(model: nn.Module, audio_files):
             colnames=["Pred"],
             dropna=False
         )
-        for r in [0, 1]:
-            if r not in cm.index:
-                cm.loc[r] = 0
-        for c in [0, 1]:
-            if c not in cm.columns:
-                cm[c] = 0
-        cm = cm.sort_index().reindex(sorted(cm.columns), axis=1)
     else:
         cm = None
 
