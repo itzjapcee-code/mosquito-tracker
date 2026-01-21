@@ -95,6 +95,10 @@ with tab_new:
             # user_name 是当前操作人，自动加入参与者
             new_t = db_adapter.create_task(assignee, new_task_name, new_cat, new_sub, new_diff, operator=user_name)
             st.success(f"任务分支“{new_task_name}”创建成功！负责人：{assignee}")
+            
+            # 强制休眠，等待文件系统落盘 (Streamlit Cloud 临时文件系统可能有延迟)
+            import time
+            time.sleep(1)
             st.rerun()
 
 st.markdown("---")
