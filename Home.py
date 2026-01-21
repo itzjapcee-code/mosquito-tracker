@@ -8,6 +8,16 @@ st.set_page_config(
     layout="wide"
 )
 
+# ================= 系统状态监测 =================
+with st.sidebar:
+    st.markdown("### 🛡️ 系统状态")
+    db_info = db_adapter.get_db()
+    if db_info["type"] == "firebase":
+        st.success("🟢 **云端数据库已连接**\n\n支持多人并发，数据永久存储。")
+    else:
+        st.error("🔴 **本地临时模式 (高危)**\n\n未配置 Firebase！\n数据将在重启后丢失。\n**严禁多人同时操作！**")
+        st.info("👉 请参照教程配置 Secrets")
+
 st.title("🌳 蚊虫识别系统 · 作战地图")
 st.markdown("### 🎯 一眼看懂项目进度与瓶颈")
 
@@ -109,9 +119,13 @@ st.markdown("---")
 st.markdown("#### 🏆 最新动态")
 df = db_adapter.get_contributions()
 if not df.empty:
+    # 动态确定要显示的列，防止KeyError
     cols = ["date", "user", "task_name", "description"]
-    if "score.V" in df.columns:
-        cols.insert(3, "score.V")
+    # 兼容新旧数据结构 V 或 score.V
+    if "V" in df.columns: cols.insert(3, "V")
+    elif "score.V" in df.columns: cols.insert(3, "score.V")
+    
+    # 过滤出存在的列
     final_cols = [c for c in cols if c in df.columns]
     
     st.dataframe(
