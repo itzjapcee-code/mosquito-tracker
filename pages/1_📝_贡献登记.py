@@ -103,52 +103,50 @@ st.markdown("---")
 if selected_task:
     st.subheader(f"🚀 更新进度: {selected_task['name']}")
     
+    # 进度更新
+    st.markdown("#### 📈 进度更新")
+    current_p = selected_task['progress']
+    new_progress = st.slider("更新当前总进度 (%)", 0, 100, int(current_p))
+    if new_progress == 100:
+        st.caption("🎉 恭喜！任务将标记为已完成。")
+
+    st.markdown("#### 🧮 今日量化评分 (The Math Model)")
+    default_d_index = list(db_adapter.SCORE_CONFIG["D_Difficulty"].keys()).index(selected_task['difficulty'])
+    
+    col_b, col_d, col_m = st.columns(3)
+    with col_b:
+        st.markdown("**B (Base) 今日产出类型**")
+        b_opts = list(db_adapter.SCORE_CONFIG["B_Base"].keys())
+        b_sel = st.selectbox("工作性质", b_opts)
+        b_val = db_adapter.SCORE_CONFIG["B_Base"][b_sel]
+    
+    with col_d:
+        st.markdown("**D (Difficulty) 任务难度**")
+        d_opts = list(db_adapter.SCORE_CONFIG["D_Difficulty"].keys())
+        d_sel = st.selectbox("难度系数", d_opts, index=default_d_index)
+        d_val = db_adapter.SCORE_CONFIG["D_Difficulty"][d_sel]
+
+    with col_m:
+        st.markdown("**M (Musk) 马斯克加速度**")
+        m_opts = list(db_adapter.SCORE_CONFIG["M_Musk"].keys())
+        m_sel = st.selectbox("核心灵魂", m_opts, index=2)
+        m_val = db_adapter.SCORE_CONFIG["M_Musk"][m_sel]
+
+    # 实时计算 V (因为都在 form 外面，所以会实时更新)
+    v_score = round((b_val * d_val) * m_val, 2)
+    
+    # 显式展示计算过程，方便核对
+    st.info(
+        f"""
+        ⚡ **今日得分 (V): {v_score}**
+        
+        🧮 计算公式: **{b_val}** (基础分) × **{d_val}** (难度) × **{m_val}** (加速度)
+        """
+    )
+
     with st.form("daily_update_form"):
         date = st.date_input("日期", datetime.now())
-        
-        # 进度更新
-        st.markdown("#### 📈 进度更新")
-        current_p = selected_task['progress']
-        new_progress = st.slider("更新当前总进度 (%)", 0, 100, int(current_p))
-        if new_progress == 100:
-            st.caption("🎉 恭喜！任务将标记为已完成。")
-
-        st.markdown("#### 🧮 今日量化评分 (The Math Model)")
-        default_d_index = list(db_adapter.SCORE_CONFIG["D_Difficulty"].keys()).index(selected_task['difficulty'])
-        
-        col_b, col_d, col_m = st.columns(3)
-        with col_b:
-            st.markdown("**B (Base) 今日产出类型**")
-            b_opts = list(db_adapter.SCORE_CONFIG["B_Base"].keys())
-            b_sel = st.selectbox("工作性质", b_opts)
-            b_val = db_adapter.SCORE_CONFIG["B_Base"][b_sel]
-        
-        with col_d:
-            st.markdown("**D (Difficulty) 任务难度**")
-            d_opts = list(db_adapter.SCORE_CONFIG["D_Difficulty"].keys())
-            d_sel = st.selectbox("难度系数", d_opts, index=default_d_index)
-            d_val = db_adapter.SCORE_CONFIG["D_Difficulty"][d_sel]
-
-        with col_m:
-            st.markdown("**M (Musk) 马斯克加速度**")
-            m_opts = list(db_adapter.SCORE_CONFIG["M_Musk"].keys())
-            m_sel = st.selectbox("核心灵魂", m_opts, index=2)
-            m_val = db_adapter.SCORE_CONFIG["M_Musk"][m_sel]
-
-        # 实时计算 V
-        v_score = round((b_val * d_val) * m_val, 2)
-        
-        # 显式展示计算过程，方便核对
-        st.info(
-            f"""
-            ⚡ **今日得分 (V): {v_score}**
-            
-            🧮 计算公式: **{b_val}** (基础分) × **{d_val}** (难度) × **{m_val}** (加速度)
-            """
-        )
-
         description = st.text_area("今日工作内容描述", placeholder="例如：完成了数据清洗脚本编写...")
-
         submit_update = st.form_submit_button("✅ 提交今日登记")
 
         if submit_update:
