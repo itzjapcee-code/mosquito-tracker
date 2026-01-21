@@ -1,0 +1,40 @@
+[
+  {
+    "date": "2026-01-21",
+    "user": "何思远",
+    "task_id": "cf8682c1",
+    "task_name": "正样本",
+    "category": "产品研发",
+    "subcategory": "收音数据样本采集",
+    "score": {
+      "V": 1.0,
+      "B_val": 1.0,
+      "B_label": "100% 完成",
+      "D_val": 1.0,
+      "D_label": "B 级 (常规)",
+      "M_val": 1.0,
+      "M_label": "Level 1 (常规 - 自动化/执行)"
+    },
+    "description": "五",
+    "timestamp": "2026-01-21T18:01:12.782306"
+  },
+  {
+    "date": "2026-01-21",
+    "user": "何思远",
+    "task_id": "cf8682c1",
+    "task_name": "正样本",
+    "category": "产品研发",
+    "subcategory": "收音数据样本采集",
+    "score": {
+      "V": 1.0,
+      "B_val": 1.0,
+      "B_label": "100% 完成",
+      "D_val": 1.0,
+      "D_label": "B 级 (常规)",
+      "M_val": 1.0,
+      "M_label": "Level 1 (常规 - 自动化/执行)"
+    },
+    "description": "无",
+    "timestamp": "2026-01-21T18:22:14.328491"
+  }
+]
