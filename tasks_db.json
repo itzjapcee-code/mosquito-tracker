@@ -1,17 +1,1 @@
-[
-  {
-    "id": "cf8682c1",
-    "user": "何思远",
-    "name": "正样本",
-    "category": "产品研发",
-    "subcategory": "收音数据样本采集",
-    "difficulty": "B 级 (常规)",
-    "progress": 9,
-    "status": "进行中",
-    "created_at": "2026-01-21",
-    "updated_at": "2026-01-21",
-    "contributors": [
-      "何思远"
-    ]
-  }
-]
+[]
