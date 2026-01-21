@@ -60,8 +60,18 @@ with tab_tasks:
         with col2:
             if st.button("🚨 确认删除任务", type="primary", disabled=(task_to_delete is None)):
                 if task_to_delete:
+                    # 1. 删除任务
                     db_adapter.delete_item("tasks", task_to_delete['id'])
-                    st.success(f"任务 {task_to_delete['name']} 已删除！")
+                    
+                    # 2. 级联删除关联的贡献记录
+                    all_contribs = db_adapter._load_data("contributions")
+                    deleted_count = 0
+                    for c in all_contribs:
+                        if str(c.get('task_id')) == str(task_to_delete['id']):
+                            db_adapter.delete_item("contributions", c['id'])
+                            deleted_count += 1
+                    
+                    st.success(f"任务 {task_to_delete['name']} 已删除！(同时清理了 {deleted_count} 条打卡记录)")
                     st.rerun()
         
         st.markdown("#### ✏️ 手动修正进度/状态")
