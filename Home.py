@@ -88,6 +88,24 @@ for category, subcategories in db_adapter.CATEGORIES.items():
             # 分隔线
             st.markdown("<div style='height: 10px'></div>", unsafe_allow_html=True)
 
+# ================= 兜底展示：未分类/匹配失败的任务 =================
+# 收集所有已显示的任务 ID
+shown_task_ids = set()
+for category, subcategories in db_adapter.CATEGORIES.items():
+    for sub in subcategories:
+        related = [t for t in active_tasks if t['category'] == category and t['subcategory'] == sub]
+        for t in related:
+            shown_task_ids.add(t['id'])
+
+# 找出漏网之鱼
+orphan_tasks = [t for t in active_tasks if t.get('id') not in shown_task_ids]
+
+if orphan_tasks:
+    with st.expander("📂 其他/未分类任务 (Orphan Tasks)", expanded=True):
+        st.warning(f"发现 {len(orphan_tasks)} 个任务未匹配到现有分类结构，请检查分类名称是否一致。")
+        for task in orphan_tasks:
+            st.markdown(f"**{task['name']}** (Category: `{task.get('category')}` / `{task.get('subcategory')}`)")
+
 st.markdown("---")
 
 # ================= 关键问题看板 =================
