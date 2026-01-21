@@ -8,7 +8,7 @@ st.title("🔧 系统后台管理")
 
 # 简单密码保护
 pwd = st.sidebar.text_input("请输入管理员密码", type="password")
-ADMIN_PWD = "admin" # 建议修改复杂一点
+ADMIN_PWD = "admin" 
 
 if pwd != ADMIN_PWD:
     st.info("🔒 请输入密码解锁管理功能。")
@@ -18,12 +18,11 @@ st.success("🔓 管理员身份已验证")
 
 tab_tasks, tab_contribs = st.tabs(["📌 任务管理", "📝 贡献记录清洗"])
 
-# ================= 1. 任务管理 =================
+# ================= 1. 任务管理 (保持不变) =================
 with tab_tasks:
     st.markdown("### 🛠️ 任务列表管理")
     st.caption("您可以删除错误的测试任务，或手动修正任务进度。")
     
-    # 获取原始数据列表（包含隐藏字段如ID）
     raw_tasks = db_adapter._load_data("tasks")
     
     if not raw_tasks:
@@ -31,8 +30,6 @@ with tab_tasks:
     else:
         df_tasks = pd.DataFrame(raw_tasks)
         
-        # 展示可编辑表格
-        # 我们只允许编辑特定列
         edited_df = st.data_editor(
             df_tasks,
             column_config={
@@ -44,7 +41,7 @@ with tab_tasks:
             },
             use_container_width=True,
             key="task_editor",
-            num_rows="dynamic" # 允许增删行? 不，我们只做修改，删除用单独按钮比较安全
+            num_rows="dynamic"
         )
         
         st.markdown("---")
@@ -67,11 +64,6 @@ with tab_tasks:
                     st.success(f"任务 {task_to_delete['name']} 已删除！")
                     st.rerun()
         
-        # 保存编辑更改 (Data Editor 暂时不支持自动回写到 JSON/Firebase，需要手动处理 diff)
-        # 这里为了简化，我们提供一个手动更新按钮，或者针对关键字段提供单独的更新入口
-        # Streamlit 的 data_editor 返回的是编辑后的 dataframe
-        
-        # 简单的单条修正逻辑
         st.markdown("#### ✏️ 手动修正进度/状态")
         edit_task = st.selectbox("选择要修正的任务", options=raw_tasks, format_func=lambda x: x['name'], key="edit_sel")
         if edit_task:
@@ -87,49 +79,90 @@ with tab_tasks:
                     st.success("更新成功！")
                     st.rerun()
 
-# ================= 2. 贡献记录清洗 =================
+# ================= 2. 贡献记录清洗 (全新交互) =================
 with tab_contribs:
     st.markdown("### 🧹 贡献数据清洗")
-    st.caption("如果成员填错了（比如分值填错、描述写错），可以在这里删除记录。")
+    st.caption("直接修改数值或删除错误记录。")
     
-    df_contribs = db_adapter.get_contributions()
+    # 获取原始数据以便获取 ID
+    raw_contribs = db_adapter._load_data("contributions")
     
-    if df_contribs.empty:
+    if not raw_contribs:
         st.info("暂无贡献数据。")
     else:
-        # 显示完整表格
-        st.dataframe(
-            df_contribs.sort_values("timestamp", ascending=False), 
-            use_container_width=True
-        )
+        # 按时间倒序排列
+        raw_contribs.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
         
-        st.markdown("---")
-        st.subheader("🗑️ 删除记录")
-        
-        # 构造一个易读的选项列表
-        # 需要确保 df_contribs 有 id 列。get_contributions 可能在 json_normalize 时丢失了 id 如果它在 root level
-        # 我们重新加载 raw data 来获取 ID
-        raw_contribs = db_adapter._load_data("contributions")
-        
-        if not raw_contribs:
-            st.warning("数据读取异常")
-        else:
-            # 按时间倒序
-            raw_contribs.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
+        # 头部标题
+        h1, h2, h3, h4, h5, h6 = st.columns([2, 2, 3, 2, 4, 2])
+        h1.markdown("**日期**")
+        h2.markdown("**成员**")
+        h3.markdown("**任务**")
+        h4.markdown("**得分 (可改)**")
+        h5.markdown("**描述 (可改)**")
+        h6.markdown("**操作**")
+        st.divider()
+
+        # 循环渲染每一行 (限制显示最近 50 条以防卡顿)
+        for i, item in enumerate(raw_contribs[:50]):
+            c1, c2, c3, c4, c5, c6 = st.columns([2, 2, 3, 2, 4, 2])
             
-            record_to_del = st.selectbox(
-                "选择要删除的记录",
-                options=raw_contribs,
-                format_func=lambda x: f"[{x.get('date')}] {x.get('user')} - {x.get('task_name')} (ID: {x.get('id')[-4:]})",
-                placeholder="请选择一条记录..."
-            )
+            with c1:
+                st.write(item.get('date', ''))
             
-            if st.button("🚨 确认删除该条记录", type="primary", disabled=(record_to_del is None)):
-                if record_to_del:
-                    # 尝试删除
-                    if "id" not in record_to_del:
-                        st.error("该记录缺少 ID，无法删除（可能是旧数据）。建议手动清理 JSON 文件。")
-                    else:
-                        db_adapter.delete_item("contributions", record_to_del['id'])
-                        st.success("记录已删除！")
+            with c2:
+                st.write(item.get('user', ''))
+            
+            with c3:
+                st.caption(item.get('task_name', ''))
+                
+            # 获取当前得分 V
+            score_dict = item.get('score', {})
+            current_v = score_dict.get('V', 0.0) if isinstance(score_dict, dict) else 0.0
+            
+            with c4:
+                # 修改得分
+                new_v = st.number_input(
+                    "得分", 
+                    value=float(current_v), 
+                    key=f"v_{item['id']}", 
+                    label_visibility="collapsed",
+                    step=0.5
+                )
+            
+            with c5:
+                # 修改描述
+                new_desc = st.text_input(
+                    "描述",
+                    value=item.get('description', ''),
+                    key=f"desc_{item['id']}",
+                    label_visibility="collapsed"
+                )
+            
+            with c6:
+                # 操作按钮
+                col_save, col_del = st.columns(2)
+                with col_save:
+                    if st.button("💾", key=f"save_{item['id']}", help="保存修改"):
+                        # 更新逻辑
+                        # 1. 更新 score.V
+                        if isinstance(item.get('score'), dict):
+                            item['score']['V'] = new_v
+                        else:
+                            item['score'] = {'V': new_v}
+                        
+                        # 2. 更新 description
+                        item['description'] = new_desc
+                        
+                        # 写入数据库 (覆盖整条 item)
+                        db_adapter._save_item("contributions", item, item['id'])
+                        st.toast(f"✅ 记录已更新！得分: {new_v}")
+                        # 不需要 rerun，因为是覆盖写入，下次刷新才变，或者手动 rerun
+                        
+                with col_del:
+                    if st.button("🗑️", key=f"del_{item['id']}", help="删除此记录"):
+                        db_adapter.delete_item("contributions", item['id'])
+                        st.toast("🗑️ 记录已删除")
                         st.rerun()
+            
+            st.divider()
