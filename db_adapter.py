@@ -200,6 +200,48 @@ def get_contributions():
     
     return df
 
+# ================= 数据删除/修正接口 =================
+def delete_item(collection_name, item_id):
+    """通用删除接口"""
+    db = get_db()
+    if db["type"] == "firebase":
+        # Firebase 删除
+        db["client"].collection(collection_name).document(str(item_id)).delete()
+        return True
+    else:
+        # 本地 JSON 删除
+        data = _load_data(collection_name)
+        # 过滤掉要删除的 ID
+        new_data = [d for d in data if str(d.get("id")) != str(item_id)]
+        
+        # 如果长度没变，说明没找到
+        if len(new_data) == len(data):
+            return False
+            
+        filename = db["task_file"] if collection_name == "tasks" else db["contrib_file"]
+        with open(filename, "w", encoding="utf-8") as f:
+            json.dump(new_data, f, ensure_ascii=False, indent=2)
+        return True
+
+def update_item_field(collection_name, item_id, field, value):
+    """通用字段更新接口"""
+    db = get_db()
+    if db["type"] == "firebase":
+        db["client"].collection(collection_name).document(str(item_id)).update({field: value})
+    else:
+        data = _load_data(collection_name)
+        found = False
+        for d in data:
+            if str(d.get("id")) == str(item_id):
+                d[field] = value
+                found = True
+                break
+        
+        if found:
+            filename = db["task_file"] if collection_name == "tasks" else db["contrib_file"]
+            with open(filename, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+
 # ================= 配置 =================
 CATEGORIES = {
     "产品研发": ["收音数据样本采集", "模型训练", "硬件设计", "优化迭代"],
