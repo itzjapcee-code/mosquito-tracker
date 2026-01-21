@@ -18,24 +18,13 @@ except ImportError:
 _db_client = None
 
 def get_db():
-    """
-    获取数据库客户端。
-    优先尝试连接 Firebase (Streamlit Secrets)。
-    如果未配置，降级为本地 JSON 模式。
-    """
     global _db_client
-    
-    # 1. 检查是否已初始化
     if _db_client:
         return _db_client
 
-    # 2. 尝试连接 Firebase
-    # 检查 secrets 是否包含 firebase 配置
     if FIREBASE_AVAILABLE and "firebase" in st.secrets:
         try:
-            # 防止重复初始化 app
             if not firebase_admin._apps:
-                # 从 st.secrets 构建证书字典
                 key_dict = dict(st.secrets["firebase"])
                 cred = credentials.Certificate(key_dict)
                 firebase_admin.initialize_app(cred)
@@ -48,7 +37,6 @@ def get_db():
         except Exception as e:
             print(f"Firebase 连接失败，回退到本地模式: {e}")
     
-    # 3. 回退到本地 JSON 模式
     _db_client = {
         "type": "local",
         "task_file": "tasks_db.json",
@@ -61,11 +49,9 @@ def get_db():
 def _load_data(collection_name):
     db = get_db()
     if db["type"] == "firebase":
-        # Firebase 模式
         docs = db["client"].collection(collection_name).stream()
         return [doc.to_dict() for doc in docs]
     else:
-        # 本地 JSON 模式
         filename = db["task_file"] if collection_name == "tasks" else db["contrib_file"]
         if not os.path.exists(filename):
             return []
@@ -78,8 +64,6 @@ def _load_data(collection_name):
 def _save_item(collection_name, item, item_id=None):
     db = get_db()
     if db["type"] == "firebase":
-        # Firebase 模式
-        # 如果没有指定 ID，让 Firebase 自动生成或使用 item 中的 id
         if not item_id and "id" in item:
             item_id = item["id"]
         
@@ -88,9 +72,7 @@ def _save_item(collection_name, item, item_id=None):
         else:
             db["client"].collection(collection_name).add(item)
     else:
-        # 本地 JSON 模式
         data = _load_data(collection_name)
-        # 如果是更新操作（检查 ID）
         if "id" in item:
             existing_idx = next((i for i, x in enumerate(data) if x.get("id") == item["id"]), -1)
             if existing_idx >= 0:
@@ -106,7 +88,6 @@ def _save_item(collection_name, item, item_id=None):
 
 # ================= 任务分支管理 =================
 def create_task(creator, name, category, subcategory, difficulty_level="B 级 (常规)", operator=None):
-    # 初始参与者
     contributors = [creator]
     if operator and operator != creator and operator not in contributors:
         contributors.append(operator)
@@ -166,7 +147,6 @@ def add_contribution(user, task_id, task_name, category, subcategory, score_data
         date = datetime.now().strftime("%Y-%m-%d")
     
     entry = {
-        # 贡献记录不需要唯一ID，用 uuid 生成一个防止冲突
         "id": str(uuid.uuid4()), 
         "date": date,
         "user": user,
@@ -183,14 +163,29 @@ def add_contribution(user, task_id, task_name, category, subcategory, score_data
     return True
 
 def get_contributions():
+    # 1. 加载所有贡献
     data = _load_data("contributions")
     if not data:
         return pd.DataFrame(columns=["date", "user", "category", "score", "description"])
     
-    df = pd.DataFrame(data)
-    # 展平 score 字段
+    # 2. 加载所有任务 ID (用于过滤孤儿数据)
+    tasks = _load_data("tasks")
+    valid_task_ids = set(t['id'] for t in tasks if 'id' in t)
+    
+    # 3. 过滤逻辑：只保留 task_id 有效的记录
+    # 如果 task_id 为空或者不在 valid_task_ids 里，说明是孤儿数据或异常数据
+    # 注意：为了兼容性，如果记录里没有 task_id 字段（极老数据），也可以选择保留或过滤
+    # 这里我们选择严格过滤：只有关联了有效任务的记录才显示
+    
+    filtered_data = [d for d in data if d.get('task_id') in valid_task_ids]
+    
+    # 如果过滤后为空
+    if not filtered_data:
+        return pd.DataFrame(columns=["date", "user", "category", "score", "description"])
+
+    df = pd.DataFrame(filtered_data)
+    
     if not df.empty and 'score' in df.columns:
-        # 处理可能为空的 score
         def normalize_score(s):
             if isinstance(s, dict): return s
             return {}
@@ -202,29 +197,21 @@ def get_contributions():
 
 # ================= 数据删除/修正接口 =================
 def delete_item(collection_name, item_id):
-    """通用删除接口"""
     db = get_db()
     if db["type"] == "firebase":
-        # Firebase 删除
         db["client"].collection(collection_name).document(str(item_id)).delete()
         return True
     else:
-        # 本地 JSON 删除
         data = _load_data(collection_name)
-        # 过滤掉要删除的 ID
         new_data = [d for d in data if str(d.get("id")) != str(item_id)]
-        
-        # 如果长度没变，说明没找到
         if len(new_data) == len(data):
             return False
-            
         filename = db["task_file"] if collection_name == "tasks" else db["contrib_file"]
         with open(filename, "w", encoding="utf-8") as f:
             json.dump(new_data, f, ensure_ascii=False, indent=2)
         return True
 
 def update_item_field(collection_name, item_id, field, value):
-    """通用字段更新接口"""
     db = get_db()
     if db["type"] == "firebase":
         db["client"].collection(collection_name).document(str(item_id)).update({field: value})
@@ -236,7 +223,6 @@ def update_item_field(collection_name, item_id, field, value):
                 d[field] = value
                 found = True
                 break
-        
         if found:
             filename = db["task_file"] if collection_name == "tasks" else db["contrib_file"]
             with open(filename, "w", encoding="utf-8") as f:
