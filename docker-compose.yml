@@ -1,0 +1,13 @@
+version: '3'
+services:
+  mosquito-app:
+    build: .
+    container_name: mosquito_tracker
+    ports:
+      - "8501:8501"
+    volumes:
+      # 关键：把容器里的 JSON 数据文件映射到服务器本地目录
+      # 这样即使删除容器，数据也不会丢！
+      - ./tasks_db.json:/app/tasks_db.json
+      - ./contributions_db.json:/app/contributions_db.json
+    restart: always
