@@ -4,5 +4,3 @@ numpy
 altair
 plotly
 firebase-admin
-torch
-torchaudio
