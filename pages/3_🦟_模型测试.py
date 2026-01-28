@@ -15,6 +15,8 @@ from model_utils import (
     N_MFCC
 )
 
+import json
+
 st.set_page_config(page_title="蚊子识别模型评估看板", page_icon="🦟", layout="wide")
 
 if "history" not in st.session_state:
@@ -24,7 +26,7 @@ if "uploader_key" not in st.session_state:
 
 st.title("🦟 智能蚊音识别系统 - 性能评估看板")
 st.markdown("---")
-st.info("💡 **使用说明**: 请先在左侧上传您的 PyTorch 模型文件 (.pth) 和测试音频 (.wav)。")
+st.info("💡 **使用说明**: 上传 .pth 模型文件（可选配套 .json 配置文件）和测试音频。")
 
 with st.sidebar:
     st.header("⚙️ 控制面板")
@@ -54,11 +56,27 @@ with st.sidebar:
     if work_mode == "单模型评估":
         st.subheader("2️⃣ 上传模型")
         arch = st.selectbox("选择模型结构", ["CNN", "CNN-LSTM"], key="single_arch")
-        model_file = st.file_uploader("上传模型文件 (.pth)", type=["pth"], key="single_model_uploader")
+        model_file = st.file_uploader("模型权重 (.pth)", type=["pth"], key="single_model_uploader")
+        config_file = st.file_uploader("模型配置 (.json, 可选)", type=["json"], key="single_config_uploader")
     else:
         st.subheader("2️⃣ 上传对比模型")
-        cnn_file = st.file_uploader("CNN 模型 (.pth)", type=["pth"], key="cmp_cnn")
-        lstm_file = st.file_uploader("CNN-LSTM 模型 (.pth)", type=["pth"], key="cmp_lstm")
+        st.caption("CNN 模型")
+        cnn_file = st.file_uploader("CNN 权重 (.pth)", type=["pth"], key="cmp_cnn")
+        cnn_config = st.file_uploader("CNN 配置 (.json)", type=["json"], key="cmp_cnn_config")
+        
+        st.markdown("---")
+        st.caption("CNN-LSTM 模型")
+        lstm_file = st.file_uploader("CNN-LSTM 权重 (.pth)", type=["pth"], key="cmp_lstm")
+        lstm_config = st.file_uploader("CNN-LSTM 配置 (.json)", type=["json"], key="cmp_lstm_config")
+
+# 辅助函数：解析配置
+def parse_config(json_file):
+    if json_file is None:
+        return {}
+    try:
+        return json.load(json_file)
+    except Exception as e:
+        return {"error": str(e)}
 
 # 固定根容器（避免 DOM removeChild）
 root = st.empty()
@@ -72,6 +90,16 @@ with root.container():
                 st.warning("👈 尚未上传模型文件。请在左侧上传 .pth 文件。")
             else:
                 try:
+                    # 显示配置信息
+                    if config_file:
+                        cfg = parse_config(config_file)
+                        with st.expander("📄 模型训练参数 (Metadata)", expanded=True):
+                            c1, c2, c3, c4 = st.columns(4)
+                            c1.metric("N_MELS", cfg.get("N_MELS", "N/A"))
+                            c2.metric("HOP_LENGTH", cfg.get("HOP_LENGTH", "N/A"))
+                            c3.metric("BATCH_SIZE", cfg.get("BATCH_SIZE", "N/A"))
+                            c4.metric("训练时间", cfg.get("saved_at", "N/A"))
+
                     model, msg = load_model_from_bytes(model_file, arch)
                     if model is None:
                         st.error(msg)
@@ -141,6 +169,26 @@ with root.container():
                     if (cnn_model is not None) and (lstm_model is not None):
                         st.success(cnn_msg)
                         st.success(lstm_msg)
+                        
+                        # --- 新增：参数对比表 ---
+                        if cnn_config or lstm_config:
+                            cfg1 = parse_config(cnn_config)
+                            cfg2 = parse_config(lstm_config)
+                            
+                            st.subheader("📋 训练参数对比")
+                            # 找出所有 key 的并集
+                            all_keys = sorted(list(set(cfg1.keys()) | set(cfg2.keys())))
+                            # 过滤掉非参数的 key (如 saved_at)
+                            filter_keys = ["saved_at"]
+                            disp_keys = [k for k in all_keys if k not in filter_keys]
+                            
+                            comp_data = {
+                                "参数名": disp_keys,
+                                "CNN 模型": [cfg1.get(k, "-") for k in disp_keys],
+                                "CNN-LSTM 模型": [cfg2.get(k, "-") for k in disp_keys]
+                            }
+                            st.dataframe(pd.DataFrame(comp_data), use_container_width=True)
+                        # -----------------------
 
                         with st.spinner("正在对比推理中..."):
                             df_cnn, m_cnn = run_infer(cnn_model, audio_files)
