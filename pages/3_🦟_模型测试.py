@@ -60,14 +60,20 @@ with st.sidebar:
         config_file = st.file_uploader("模型配置 (.json, 可选)", type=["json"], key="single_config_uploader")
     else:
         st.subheader("2️⃣ 上传对比模型")
-        st.caption("CNN 模型")
-        cnn_file = st.file_uploader("CNN 权重 (.pth)", type=["pth"], key="cmp_cnn")
-        cnn_config = st.file_uploader("CNN 配置 (.json)", type=["json"], key="cmp_cnn_config")
+        
+        # --- 模型 A 配置 ---
+        st.caption("🅰️ 模型 A (基准)")
+        arch_a = st.selectbox("模型 A 结构", ["CNN", "CNN-LSTM"], index=0, key="arch_a")
+        model_file_a = st.file_uploader(f"模型 A 权重 (.pth)", type=["pth"], key="cmp_model_a")
+        config_file_a = st.file_uploader(f"模型 A 配置 (.json)", type=["json"], key="cmp_config_a")
         
         st.markdown("---")
-        st.caption("CNN-LSTM 模型")
-        lstm_file = st.file_uploader("CNN-LSTM 权重 (.pth)", type=["pth"], key="cmp_lstm")
-        lstm_config = st.file_uploader("CNN-LSTM 配置 (.json)", type=["json"], key="cmp_lstm_config")
+        
+        # --- 模型 B 配置 ---
+        st.caption("🅱️ 模型 B (对照)")
+        arch_b = st.selectbox("模型 B 结构", ["CNN", "CNN-LSTM"], index=1, key="arch_b")
+        model_file_b = st.file_uploader(f"模型 B 权重 (.pth)", type=["pth"], key="cmp_model_b")
+        config_file_b = st.file_uploader(f"模型 B 配置 (.json)", type=["json"], key="cmp_config_b")
 
 # 辅助函数：解析配置
 def parse_config(json_file):
@@ -154,84 +160,82 @@ with root.container():
                      st.exception(e)
 
         else:
-            if not (cnn_file and lstm_file):
-                st.warning("👈 请在左侧上传 CNN 模型和 CNN-LSTM 模型（.pth）开始对比。")
+            if not (model_file_a and model_file_b):
+                st.warning("👈 请在左侧上传两个模型文件（.pth）开始对比。")
             else:
                 try:
-                    cnn_model, cnn_msg = load_model_from_bytes(cnn_file, "CNN")
-                    lstm_model, lstm_msg = load_model_from_bytes(lstm_file, "CNN-LSTM")
+                    model_a, msg_a = load_model_from_bytes(model_file_a, arch_a)
+                    model_b, msg_b = load_model_from_bytes(model_file_b, arch_b)
 
-                    if cnn_model is None:
-                        st.error(cnn_msg)
-                    if lstm_model is None:
-                        st.error(lstm_msg)
+                    if model_a is None:
+                        st.error(f"模型 A 加载失败: {msg_a}")
+                    if model_b is None:
+                        st.error(f"模型 B 加载失败: {msg_b}")
 
-                    if (cnn_model is not None) and (lstm_model is not None):
-                        st.success(cnn_msg)
-                        st.success(lstm_msg)
+                    if (model_a is not None) and (model_b is not None):
+                        st.success(f"模型 A ({arch_a}): {msg_a}")
+                        st.success(f"模型 B ({arch_b}): {msg_b}")
                         
                         # --- 新增：参数对比表 ---
-                        if cnn_config or lstm_config:
-                            cfg1 = parse_config(cnn_config)
-                            cfg2 = parse_config(lstm_config)
+                        if config_file_a or config_file_b:
+                            cfg1 = parse_config(config_file_a)
+                            cfg2 = parse_config(config_file_b)
                             
                             st.subheader("📋 训练参数对比")
-                            # 找出所有 key 的并集
                             all_keys = sorted(list(set(cfg1.keys()) | set(cfg2.keys())))
-                            # 过滤掉非参数的 key (如 saved_at)
                             filter_keys = ["saved_at"]
                             disp_keys = [k for k in all_keys if k not in filter_keys]
                             
                             comp_data = {
                                 "参数名": disp_keys,
-                                "CNN 模型": [cfg1.get(k, "-") for k in disp_keys],
-                                "CNN-LSTM 模型": [cfg2.get(k, "-") for k in disp_keys]
+                                f"模型 A ({arch_a})": [cfg1.get(k, "-") for k in disp_keys],
+                                f"模型 B ({arch_b})": [cfg2.get(k, "-") for k in disp_keys]
                             }
                             st.dataframe(pd.DataFrame(comp_data), use_container_width=True)
                         # -----------------------
 
                         with st.spinner("正在对比推理中..."):
-                            df_cnn, m_cnn = run_infer(cnn_model, audio_files)
-                            df_lstm, m_lstm = run_infer(lstm_model, audio_files)
+                            df_a, m_a = run_infer(model_a, audio_files)
+                            df_b, m_b = run_infer(model_b, audio_files)
 
                         st.subheader("📊 核心指标对比")
                         cc1, cc2, cc3, cc4, cc5 = st.columns(5)
-                        cc1.metric("样本数", m_cnn["samples"])
-                        cc2.metric("CNN 蚊子检出", m_cnn["mosquito"], delta_color="inverse")
-                        cc3.metric("LSTM 蚊子检出", m_lstm["mosquito"], delta_color="inverse")
-                        cc4.metric("CNN 读取失败", m_cnn["read_fail"])
-                        cc5.metric("LSTM 读取失败", m_lstm["read_fail"])
+                        cc1.metric("样本数", m_a["samples"])
+                        cc2.metric(f"A 蚊子检出", m_a["mosquito"], delta_color="inverse")
+                        cc3.metric(f"B 蚊子检出", m_b["mosquito"], delta_color="inverse")
+                        cc4.metric(f"A 读取失败", m_a["read_fail"])
+                        cc5.metric(f"B 读取失败", m_b["read_fail"])
 
-                        st.write(f"**CNN 准确率：** {m_cnn['acc_str']}   |   **CNN-LSTM 准确率：** {m_lstm['acc_str']}")
+                        st.write(f"**模型 A ({arch_a}) 准确率：** {m_a['acc_str']}   |   **模型 B ({arch_b}) 准确率：** {m_b['acc_str']}")
 
                         if st.button("💾 记录本次对比结果", key="btn_save_cmp", type="primary"):
                             st.session_state["history"].insert(0, {
                                 "时间": datetime.now().strftime("%H:%M:%S"),
                                 "模式": "对比",
-                                "结构": "CNN vs CNN-LSTM",
-                                "模型名称": f"{cnn_file.name}  |  {lstm_file.name}",
-                                "样本数": m_cnn["samples"],
-                                "蚊子数": f"{m_cnn['mosquito']} | {m_lstm['mosquito']}",
-                                "准确率": f"{m_cnn['acc_str']} | {m_lstm['acc_str']}",
-                                "读取失败": f"{m_cnn['read_fail']} | {m_lstm['read_fail']}",
+                                "结构": f"{arch_a} vs {arch_b}",
+                                "模型名称": f"{model_file_a.name} | {model_file_b.name}",
+                                "样本数": m_a["samples"],
+                                "蚊子数": f"{m_a['mosquito']} | {m_b['mosquito']}",
+                                "准确率": f"{m_a['acc_str']} | {m_b['acc_str']}",
+                                "读取失败": f"{m_a['read_fail']} | {m_b['read_fail']}",
                             })
                             st.success("已保存！")
 
                         st.subheader("🔍 逐文件差异对比")
                         cmp = pd.merge(
-                            df_cnn[["文件名", "真实标签", "真实idx", "预测标签", "预测idx", "置信度", "判定"]].rename(
-                                columns={"预测标签": "CNN预测", "预测idx": "CNN预测idx", "置信度": "CNN置信度", "判定": "CNN判定"}
+                            df_a[["文件名", "真实标签", "真实idx", "预测标签", "预测idx", "置信度", "判定"]].rename(
+                                columns={"预测标签": "A预测", "预测idx": "A预测idx", "置信度": "A置信度", "判定": "A判定"}
                             ),
-                            df_lstm[["文件名", "预测标签", "预测idx", "置信度", "判定"]].rename(
-                                columns={"预测标签": "LSTM预测", "预测idx": "LSTM预测idx", "置信度": "LSTM置信度", "判定": "LSTM判定"}
+                            df_b[["文件名", "预测标签", "预测idx", "置信度", "判定"]].rename(
+                                columns={"预测标签": "B预测", "预测idx": "B预测idx", "置信度": "B置信度", "判定": "B判定"}
                             ),
                             on="文件名",
                             how="inner"
                         )
-                        cmp["CNN置信度"] = (cmp["CNN置信度"] * 100).map(lambda x: f"{x:.1f}%")
-                        cmp["LSTM置信度"] = (cmp["LSTM置信度"] * 100).map(lambda x: f"{x:.1f}%")
+                        cmp["A置信度"] = (cmp["A置信度"] * 100).map(lambda x: f"{x:.1f}%")
+                        cmp["B置信度"] = (cmp["B置信度"] * 100).map(lambda x: f"{x:.1f}%")
                         cmp["预测是否不同"] = np.where(
-                            (cmp["CNN预测idx"] != -1) & (cmp["LSTM预测idx"] != -1) & (cmp["CNN预测idx"] != cmp["LSTM预测idx"]),
+                            (cmp["A预测idx"] != -1) & (cmp["B预测idx"] != -1) & (cmp["A预测idx"] != cmp["B预测idx"]),
                             "✅ 不同",
                             "—"
                         )
@@ -241,8 +245,8 @@ with root.container():
 
                         st.dataframe(
                             show_cmp[["文件名", "真实标签", 
-                                      "CNN预测", "CNN置信度", "CNN判定", 
-                                      "LSTM预测", "LSTM置信度", "LSTM判定", 
+                                      "A预测", "A置信度", "A判定", 
+                                      "B预测", "B置信度", "B判定", 
                                       "预测是否不同"]],
                             use_container_width=True,
                             hide_index=True
