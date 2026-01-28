@@ -184,10 +184,17 @@ def load_model_from_bytes(uploaded_file, arch: str):
         return None, f"❌ 模型加载失败（{arch}）：{e}"
 
 # ================= 6. 推理与统计 =================
-def run_infer(model: nn.Module, audio_files):
+def run_infer(model: nn.Module, audio_files, use_long=False, min_conf=0.5, ratio_thr=0.3, enhance=False):
+    """
+    运行推理
+    use_long, min_conf, ratio_thr, enhance 目前是占位参数，用于兼容接口，未来可实现具体逻辑
+    """
     results = []
     correct_count = 0
     total_labeled = 0
+    
+    # 窗口切片分析详情 (目前为空)
+    window_df = None
 
     progress = st.progress(0)
 
@@ -196,6 +203,8 @@ def run_infer(model: nn.Module, audio_files):
 
         try:
             waveform, sr = load_audio_from_uploaded(audio_file)
+            # TODO: 实现 enhance 和 use_long 的逻辑
+            # 目前只使用基础逻辑
             input_tensor = process_audio_tensor(waveform, sr)
         except Exception as e:
             true_idx, true_str = parse_label_from_filename(audio_file.name)
@@ -207,6 +216,7 @@ def run_infer(model: nn.Module, audio_files):
                 "预测idx": -1,
                 "置信度": 0.0,
                 "判定": f"Err: {str(e)[:20]}",
+                "时长": "N/A"
             })
             continue
 
@@ -215,6 +225,10 @@ def run_infer(model: nn.Module, audio_files):
             probs = torch.softmax(output, dim=1)
             pred_idx = int(torch.argmax(probs).item())
             confidence = float(probs[0, pred_idx].item())
+            
+        # 计算时长
+        duration = waveform.shape[1] / sr
+        duration_str = f"{duration:.2f}s"
 
         true_idx, true_str = parse_label_from_filename(audio_file.name)
         pred_str = CLASSES[pred_idx]
@@ -236,6 +250,7 @@ def run_infer(model: nn.Module, audio_files):
             "预测idx": pred_idx,
             "置信度": confidence,
             "判定": judge,
+            "时长": duration_str
         })
 
     progress.empty()
@@ -267,6 +282,7 @@ def run_infer(model: nn.Module, audio_files):
         "acc_str": acc_str,
         "acc_val": acc_val,
         "cm": cm,
-        "read_fail": int((df["预测idx"] == -1).sum())
+        "read_fail": int((df["预测idx"] == -1).sum()),
+        "window_df": window_df # 新增字段
     }
     return df, metrics

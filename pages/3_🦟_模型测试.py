@@ -30,10 +30,23 @@ st.info("💡 **使用说明**: 上传 .pth 模型文件（可选配套 .json �
 
 with st.sidebar:
     st.header("⚙️ 控制面板")
+    
+    # --- 原 Pro 版参数 (保留) ---
+    tester = st.text_input("测试人", value="管理员") 
+    st.divider()
+    enhance = st.checkbox("🔊 启用音频增强", value=False, help="对微弱信号进行带通滤波和动态压缩")
+    use_long = st.checkbox("🎞️ 启用长音频切片", value=False, help="超过1.5s的音频自动切片分析")
+    if use_long:
+        min_conf = st.slider("窗口置信度阈值", 0.0, 1.0, 0.5)
+        ratio_thr = st.slider("蚊子片段比例阈值", 0.0, 1.0, 0.3)
+    else:
+        min_conf, ratio_thr = 0.5, 0.3
+    st.divider()
+    # --------------------------
 
     work_mode = st.radio(
         "模式",
-        ["单模型评估", "模型对比（CNN vs CNN-LSTM）"],
+        ["单模型评估", "模型对比"],
         key="work_mode_radio"
     )
 
@@ -112,8 +125,9 @@ with root.container():
                     else:
                         st.success(msg)
                         
+                        # 调用推理函数 (传入新参数)
                         with st.spinner("正在进行推理分析..."):
-                            df, metrics = run_infer(model, audio_files)
+                            df, metrics = run_infer(model, audio_files, use_long, min_conf, ratio_thr, enhance)
 
                         c1, c2, c3, c4, c5 = st.columns(5)
                         c1.metric("测试样本总数", metrics["samples"])
@@ -124,15 +138,22 @@ with root.container():
                             if st.button("💾 记录本次结果", key="btn_save_single", type="primary"):
                                 st.session_state["history"].insert(0, {
                                     "时间": datetime.now().strftime("%H:%M:%S"),
+                                    "测试人": tester, # 新增
                                     "模式": "单模型",
                                     "结构": arch,
                                     "模型名称": model_file.name,
                                     "样本数": metrics["samples"],
                                     "蚊子数": metrics["mosquito"],
                                     "准确率": metrics["acc_str"],
-                                    "读取失败": metrics["read_fail"],
+                                    "配置": f"增强:{enhance}/长音频:{use_long}", # 新增
                                 })
                                 st.success("已保存！")
+                        
+                        # --- 长音频切片详情 ---
+                        if metrics.get("window_df") is not None and not metrics["window_df"].empty:
+                            with st.expander("🕰️ 查看长音频切片详情"):
+                                st.dataframe(metrics["window_df"])
+                        # ---------------------
 
                         st.subheader("🧮 混淆矩阵")
                         if metrics["cm"] is None:
@@ -143,8 +164,10 @@ with root.container():
                         st.subheader("📄 详细检测报告")
                         show_df = df.copy()
                         show_df["置信度"] = (show_df["置信度"] * 100).map(lambda x: f"{x:.1f}%")
+                        # 增加时长列显示
+                        cols_to_show = ["文件名", "时长", "真实标签", "预测标签", "置信度", "判定"]
                         st.dataframe(
-                            show_df[["文件名", "真实标签", "预测标签", "置信度", "判定"]],
+                            show_df[cols_to_show],
                             use_container_width=True,
                             hide_index=True
                         )
@@ -195,8 +218,8 @@ with root.container():
                         # -----------------------
 
                         with st.spinner("正在对比推理中..."):
-                            df_a, m_a = run_infer(model_a, audio_files)
-                            df_b, m_b = run_infer(model_b, audio_files)
+                            df_a, m_a = run_infer(model_a, audio_files, use_long, min_conf, ratio_thr, enhance)
+                            df_b, m_b = run_infer(model_b, audio_files, use_long, min_conf, ratio_thr, enhance)
 
                         st.subheader("📊 核心指标对比")
                         cc1, cc2, cc3, cc4, cc5 = st.columns(5)
@@ -211,13 +234,14 @@ with root.container():
                         if st.button("💾 记录本次对比结果", key="btn_save_cmp", type="primary"):
                             st.session_state["history"].insert(0, {
                                 "时间": datetime.now().strftime("%H:%M:%S"),
+                                "测试人": tester, # 新增
                                 "模式": "对比",
                                 "结构": f"{arch_a} vs {arch_b}",
                                 "模型名称": f"{model_file_a.name} | {model_file_b.name}",
                                 "样本数": m_a["samples"],
                                 "蚊子数": f"{m_a['mosquito']} | {m_b['mosquito']}",
                                 "准确率": f"{m_a['acc_str']} | {m_b['acc_str']}",
-                                "读取失败": f"{m_a['read_fail']} | {m_b['read_fail']}",
+                                "配置": f"增强:{enhance}/长音频:{use_long}", # 新增
                             })
                             st.success("已保存！")
 
